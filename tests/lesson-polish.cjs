@@ -1,0 +1,90 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const { createHarness } = require('./component-harness.cjs');
+const source = file => fs.readFileSync(file, 'utf8');
+const text = h => h.nodes('Text').flatMap(n => n.children).join('');
+const one = createHarness('screens/LessonScreen.tsx', { onBack() {}, onComplete() {} });
+assert.equal(one.nodes('LessonProgress').length, 0);
+assert.equal(one.nodes('LessonSection').length, 1);
+for (let i = 0; i < 6; i++) {
+  assert.equal(one.nodes('PrimaryButton').length, 0);
+  const inspect = one.nodes('LessonSection')[i].props.onInspect;
+  inspect(); inspect();
+  assert.equal(one.nodes('LessonSection').length, Math.min(6, i + 2));
+}
+assert(one.nodes('PrimaryButton').some(n => n.props.label === 'Start the quiz'));
+assert(!source('screens/LessonScreen.tsx').includes('minHeight: 590'));
+
+const slit = createHarness('screens/DoubleSlitScreen.tsx', {});
+const predictions = () => slit.all(slit.render()).filter(n => n.type?.name === 'Prediction');
+assert.equal(predictions().length, 1);
+predictions()[0].props.onSelect('Evenly spread');
+assert.equal(predictions().length, 1);
+assert(!text(slit).includes('What happens with electrons?'));
+predictions()[0].props.onSelect('Two bands');
+assert.equal(predictions().length, 2);
+predictions()[1].props.onSelect('Two bands');
+assert(!text(slit).includes('What happens with electrons?'));
+predictions()[1].props.onSelect('Something else');
+assert(text(slit).includes('We record its arrival on the wall'));
+
+let reveals = 0;
+const scratch = createHarness('components/ScratchReveal.tsx', { title: 'Word', children: 'Quantised', onReveal() { reveals++; } });
+const surface = () => scratch.nodes('View').find(n => n.props.onResponderGrant);
+surface().props.onLayout({ nativeEvent: { layout: { width: 280, height: 100 } } });
+const evt = (x, y) => ({ nativeEvent: { locationX: x, locationY: y } });
+surface().props.onResponderGrant(evt(5, 10));
+assert.equal(reveals, 0);
+for (const y of [10, 40, 70, 95]) {
+  surface().props.onResponderMove(evt(5, y));
+  surface().props.onResponderMove(evt(275, y));
+}
+scratch.render(); scratch.render();
+assert.equal(reveals, 1);
+
+const locks = []; let sealed = 0;
+const cat = createHarness('components/SchrodingerCatLesson.tsx', { onComplete() { sealed++; }, onScrollLock(v) { locks.push(v); } }, 'CatBoxSetup');
+const drag = cat.nodes('AnimatedView').find(n => n.props.onPanResponderGrant);
+drag.props.onPanResponderGrant();
+drag.props.onPanResponderRelease(null, { dx: 120 });
+const tape = () => cat.nodes('View').find(n => n.props.onPanResponderMove);
+tape().props.onPanResponderGrant();
+assert.equal(locks.at(-1), true);
+tape().props.onPanResponderMove(null, { dx: 45 });
+tape().props.onPanResponderTerminate();
+assert.equal(locks.at(-1), false);
+assert.equal(sealed, 0);
+tape().props.onPanResponderGrant();
+tape().props.onPanResponderRelease(null, { dx: 120 });
+assert.equal(locks.at(-1), false);
+assert.equal(sealed, 0, 'Finish the short settle animation before revealing the next section');
+cat.flight();
+assert.equal(sealed, 1);
+assert(text(cat).includes('The box is sealed'));
+cat.unmount();
+assert.equal(locks.at(-1), false);
+let collapsed = 0;
+const coin = createHarness('components/MeasurementLessonLabs.tsx', { onComplete() { collapsed++; } }, 'CoinCollapseDemo');
+const collapse = coin.nodes('Pressable')[0].props.onLongPress;
+collapse(); collapse();
+assert.equal(collapsed, 1);
+assert(coin.nodes('Pressable')[0].props.disabled);
+assert(!source('components/MeasurementLessonLabs.tsx').includes('rotateY'));
+assert(source('components/MeasurementLessonLabs.tsx').includes("useNativeDriver: Platform.OS !== 'web'"));
+coin.unmount();
+
+let cycles = 0;
+const columns = createHarness('components/FermionChemistryLesson.tsx', { onComplete() { cycles++; } }, 'PeriodicColumns');
+columns.render();
+for (let i = 0; i < 8; i++) columns.tick();
+assert.equal(cycles, 1);
+columns.tick(); assert(text(columns).includes('Group 2'));
+for (let i = 0; i < 15; i++) columns.tick();
+assert.equal(cycles, 1, 'Further column cycles do not repeat completion');
+assert.equal(columns.activeTimers(), 1, 'Column animation continues after the information unlocks');
+columns.unmount(); assert.equal(columns.activeTimers(), 0);
+assert(!source('components/FriendlyBosonsLesson.tsx').includes('partySign'));
+assert(source('screens/ModuleFourLessonSixScreen.tsx').includes('celebrating-charm.jpg'));
+assert(source('data/preloadAssets.ts').includes('celebrating-charm.jpg'));
+assert(fs.existsSync('assets/module-4/celebrating-charm.jpg'));
+console.log('PASS: sequential magnifier and prediction gates, scratch gate, tape scroll/cancel/settle, coin lock, continuing group loop and celebration asset');

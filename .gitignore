@@ -1,0 +1,27 @@
+node_modules/
+.expo/
+outputs/
+work/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+
+# Generated exports, local state and platform noise
+dist/
+web-build/
+coverage/
+.DS_Store
+*.log
+.npm/
+
+# Credentials and signing material must never enter a source backup
+*.pem
+*.key
+*.p12
+*.p8
+*.jks
+*.keystore
+credentials.json
+.npmrc
+.netrc

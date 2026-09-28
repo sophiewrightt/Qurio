@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Qurio",
+    "slug": "qurio-prototype",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F8F3E8"
+      }
+    },
+    "plugins": [
+      "expo-font",
+      "expo-status-bar",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Qurio to use the camera for the Lesson 8 camera-sensor experiment.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "resizeMode": "contain",
+          "backgroundColor": "#F8F3E8"
+        }
+      ]
+    ]
+  }
+}

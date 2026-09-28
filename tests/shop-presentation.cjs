@@ -1,0 +1,37 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const ts = require('typescript');
+const { createHarness } = require('./component-harness.cjs');
+const text = ui => ui.nodes('Text').flatMap(n => n.children).join(' ');
+const shop = createHarness('screens/ShopScreen.tsx', { quanta: 1000, owned: [], onBuy() {}, onRip() {}, onFinishPacket() {}, onBack() {} });
+assert(text(shop).includes('Get 3 random accessories (all rarities)'));
+assert(text(shop).includes('Repeats of items you already own are possible ;)'));
+assert(text(shop).includes('Special Q-packs'));
+assert(text(shop).includes('Vault of quanta'));
+for (const removed of ['THE BOUTIQUE SHOP', 'THE ORIGINAL Q PACKET', 'A little mystery', 'Prototype:', 'Contents & odds', '%', 'Mountain of quanta']) assert(!text(shop).includes(removed), removed);
+assert.equal(shop.nodes('QuantaArtwork').length, 4);
+assert(text(shop).includes('No real-money purchases are available yet.'));
+const home = createHarness('screens/HomeScreen.tsx', { xp: 0, collected: true, completed: [], onContinue() {}, onSelectLesson() {} });
+assert.equal(home.nodes('AchievementEntryArtwork').length, 1);
+assert(text(home).includes('Achievements'));
+assert(!text(home).includes('click here to see'));
+assert(home.nodes('AvatarGreeting')[0].props.width <= 132);
+assert.equal(home.nodes('TextInput').length, 1, 'Home retains the name field');
+const source = fs.readFileSync('screens/HomeScreen.tsx', 'utf8');
+assert(source.includes("greetingPosition: { position: 'absolute'"), 'Greeting does not displace the centred avatar');
+const achievements = {};
+new Function('exports', ts.transpileModule(fs.readFileSync('data/achievements.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText)(achievements);
+const progress = achievements.claimAchievement(achievements.completeAchievementLesson(achievements.initialAchievements, 4), 'W1.1');
+const ui = createHarness('screens/AchievementsScreen.tsx', { progress, quanta: 20, owned: [], onBack() {}, onClaim() {}, onOpenPacket() {}, onDismissNotice() {} });
+const claimed = ui.nodes('Pressable').find(n => n.props.accessibilityLabel?.includes('. Claimed'));
+assert(claimed && !claimed.props.accessibilityLabel.includes('Quanta'));
+assert(!ui.nodes('TourAnchor').some(n => n.props.id === 'first-reward'), 'Claimed amount and collect control disappear');
+assert(text(ui).includes('Claimed'));
+for (const file of ['pile_of_quanta_.jpg', 'bucket_of_quanta.jpg', 'chest_of_quanta.jpg', 'vault_of_quanta.jpg']) {
+  assert(fs.existsSync(`assets/shop/${file}`));
+  assert(fs.readFileSync('data/preloadAssets.ts', 'utf8').includes(file));
+}
+assert(fs.readFileSync('data/preloadAssets.ts', 'utf8').includes('default_achievement_badge.jpg'));
+assert(fs.readFileSync('components/LessonEntryModal.tsx', 'utf8').includes('fontSize: 62, fontFamily: fonts.display'));
+assert(!fs.readFileSync('screens/CustomisationScreen.tsx', 'utf8').includes('fontFamily: b.'));
+console.log('PASS: centred companion, badge entry, claimed reward presentation, crayon fonts, simplified market and supplied Quanta art');

@@ -1,0 +1,100 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const { PNG } = require('pngjs');
+const { createHarness } = require('./component-harness.cjs');
+const file = 'components/TunnellingLesson.tsx';
+const button = (h, label) => h.nodes('PrimaryButton').find(n => n.props.label === label);
+const content = h => JSON.stringify(h.render());
+const children = (h, name) => h.all(h.render()).filter(n => n.type?.name === name);
+
+let completions = 0;
+const bounce = createHarness(file, { particle: 'basketball', onComplete() { completions++; } }, 'ClassicalBarrier');
+const shoot = button(bounce, 'Shoot the basketball').props.onPress;
+shoot(); shoot(); assert.equal(completions, 0);
+assert.equal(button(bounce, 'Shoot the basketball').props.disabled, true);
+bounce.flight(); assert.equal(completions, 1);
+button(bounce, 'Replay the bounce').props.onPress(); bounce.flight(); assert.equal(completions, 1);
+button(bounce, 'Replay the bounce').props.onPress(); bounce.unmount(); bounce.flight(); assert.equal(completions, 1);
+
+let measured = 0;
+const lab = createHarness(file, { onComplete() { measured++; } }, 'BarrierLab');
+assert.equal(lab.nodes('Switch').length, 0);
+button(lab, 'Shoot an electron wave').props.onPress();
+assert.equal(lab.nodes('MysteryPanel').length, 0);
+lab.flight(); assert.equal(lab.nodes('MysteryPanel').length, 1);
+assert.equal(button(lab, 'Detect a fresh electron'), undefined);
+lab.nodes('Switch')[0].props.onValueChange(true);
+assert.equal(button(lab, 'Detect a fresh electron'), undefined);
+lab.nodes('Switch')[1].props.onValueChange(true);
+assert.equal(button(lab, 'Detect a fresh electron'), undefined);
+assert.equal(measured, 1, 'Explore both controls to finish the simplified wave comparison');
+assert(content(lab).includes('It can also be seen to reflect off.'));
+lab.nodes('Switch')[0].props.onValueChange(false);
+assert.equal(measured, 1);
+lab.unmount();
+const cancelled = createHarness(file, {}, 'BarrierLab');
+button(cancelled, 'Shoot an electron wave').props.onPress(); cancelled.unmount(); cancelled.flight();
+assert.equal(cancelled.nodes('Switch').length, 0);
+
+let fused = 0, locked = false;
+const fusion = createHarness(file, { onComplete() { fused++; }, onScrollLockChange(v) { locked=v; } }, 'SolarFusion');
+const gesture = () => fusion.nodes('View').find(n => n.props.onPanResponderRelease);
+gesture().props.onPanResponderGrant(); assert(locked);
+gesture().props.onPanResponderRelease(null, { dx: 10 }); assert(!locked); assert.equal(fused, 0);
+gesture().props.onPanResponderRelease(null, { dx: 70 });
+fusion.flight(); assert(content(fusion).includes('Hang on'));
+const again = fusion.nodes('Pressable')[0].props.onPress;
+again(); again(); fusion.flight(); assert(content(fusion).includes('Fusion begins'));
+assert.equal(fused, 0); fusion.flight(); assert.equal(fused, 1);
+assert(content(fusion).includes('four hydrogen nuclei'));
+again(); assert.equal(fused, 1);
+fusion.unmount(); assert(!locked);
+const cancelledFusion = createHarness(file, { onComplete() { fused++; } }, 'SolarFusion');
+cancelledFusion.nodes('Pressable')[0].props.onPress(); cancelledFusion.unmount(); cancelledFusion.flight(); assert.equal(fused, 1);
+
+let quiz = 0;
+const lesson = createHarness(file, { onComplete() { quiz++; } }, 'TunnellingLesson');
+assert.equal(children(lesson, 'ClassicalBarrier').length, 1);
+assert.equal(children(lesson, 'BarrierLab').length, 0);
+children(lesson, 'ClassicalBarrier')[0].props.onComplete();
+children(lesson, 'ClassicalBarrier')[1].props.onComplete();
+children(lesson, 'BarrierLab')[0].props.onComplete();
+lesson.nodes('AnswerButton')[0].props.onPress(); assert.equal(children(lesson, 'SolarFusion').length, 0);
+lesson.nodes('AnswerButton')[1].props.onPress(); assert.equal(children(lesson, 'SolarFusion').length, 1);
+assert.equal(button(lesson, 'Start the quiz'), undefined);
+children(lesson, 'SolarFusion')[0].props.onComplete(); button(lesson, 'Start the quiz').props.onPress(); assert.equal(quiz, 1);
+const fresh = createHarness(file, {}, 'TunnellingLesson'); assert.equal(fresh.nodes('BarrierLab').length, 0);
+
+let score;
+const screen = createHarness('screens/ModuleFourLessonOneScreen.tsx', { onComplete(v) { score=v; } });
+screen.nodes('TunnellingLesson')[0].props.onScrollLockChange(true); assert.equal(screen.nodes('ScrollView')[0].props.scrollEnabled, false);
+screen.nodes('TunnellingLesson')[0].props.onComplete(); assert.equal(screen.nodes('TunnellingLesson').length, 0);
+const questions = screen.nodes('LessonQuiz')[0].props.questions;
+assert.equal(questions.length, 4); questions.forEach(q => assert(q.options.includes(q.answer) && q.explanation));
+screen.nodes('LessonQuiz')[0].props.onFinish(4); assert.equal(score, 4);
+
+const app = createHarness('App.tsx');
+app.nodes('HomeScreen')[0].props.onSelectLesson(26); app.nodes('LessonEntryModal')[0].props.onPlay();
+app.nodes('ModuleFourLessonOneScreen')[0].props.onComplete(4);
+app.nodes('ModuleFourLessonOneScreen')[0].props.onComplete(4);
+assert.equal(typeof app.nodes('LessonNavigationProvider')[0].props.onNext, 'function', 'Lesson 2 is now available');
+app.nodes('LessonNavigationProvider')[0].props.onHome();
+assert.equal(app.nodes('HomeScreen')[0].props.xp, 0);
+assert.deepEqual(app.nodes('HomeScreen')[0].props.completed, [26]);
+
+const exported = {};
+new Function('exports', require('typescript').transpileModule(fs.readFileSync('data/moduleFour.ts','utf8'), { compilerOptions: { module: 1 } }).outputText)(exported);
+const p=exported.tunnellingProbability;
+assert(p(false,false) > p(true,false)); assert(p(false,false) > p(false,true));
+assert(p(true,true) < p(true,false)); assert(p(true,true) > 0);
+for(let i=1;i<=7;i++) {
+  const png=PNG.sync.read(fs.readFileSync(`assets/lesson-badges/world-4/${i}.png`));
+  assert.equal(png.width,256); assert.equal(png.height,256); assert.equal(png.data[3],0);
+  let white=0; for(let j=0;j<png.data.length;j+=4) if(png.data[j]>240&&png.data[j+1]>240&&png.data[j+2]>240&&png.data[j+3]>240)white++;
+  assert(white>100, 'Keep the white numeral opaque');
+}
+const preload = fs.readFileSync('data/preloadAssets.ts','utf8');
+for (const asset of ['sun','repelling','hydrogen','helium']) assert(preload.includes(`module-4/lesson-1/${asset}.png`));
+assert(preload.includes('4: [...sharedWorldAssets, ...worldFourAssets]'));
+assert(!fs.readFileSync(file,'utf8').includes('—'));
+console.log('PASS: Chapter 4 progressive gates, wave comparisons, fusion gestures, cancellation, quiz isolation, single XP award and seven normalised badges');

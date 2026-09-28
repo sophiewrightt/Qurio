@@ -1,0 +1,31 @@
+# Accounts and learner access: implementation checkpoint
+
+## Implemented
+
+All four final quizzes require **strictly more than 70%**, with their exact count shown before starting: World 1 5/6, World 2 4/5, World 3 5/7, World 4 5/7. A failed attempt retains answer explanations and returns Home instead of reaching celebration, reward packets or completion callbacks. A retry starts a fresh lesson visit. Regular lessons still allow completion regardless of quiz score. `data/learnerRules.ts` holds the shared policy constants; `tests/final-quiz-pass.cjs` tests the score boundaries and entry wiring.
+
+This is a frontend learning-flow gate, **not server authorization**. Guest sessions now reveal only the completed contiguous lesson path plus the next lesson, and local admission checks the same order. Tester/creator-preview access remains unrestricted. This session-only progression is not a secure server-side entitlement. `DAILY_LIFE_LIMIT` is now **3**, a policy/display constant only; daily debits are not implemented yet. See `ONBOARDING.md` for the new local Guest / Tester entry. It is not Supabase login.
+
+Lesson starts show `LessonEntryModal`: “This will use 1 energy.”, a large minus/energy sprite, “Play lesson n.n” and “Later”. Home selection, Continue, replays and Next Lesson route through this confirmation, except the one introductory free Lesson 1 start and all Tester starts. Cancel/back dismisses without navigation or progress changes; confirmation callbacks are idempotent and stale-dialog guarded. `data/lessonEntry.ts` maps screen IDs to world/lesson numbers and owns the canonical progression order. Cancelling the energy prompt increments a navigation cancellation revision, reopening the lesson-end Home/Next controls without repeating completion callbacks. This is a UI preview only: it does not decrement the dummy 3/3 balance, enforce a quota or contact Supabase. Tester shows ∞. Add the real debit to server-authorised lesson admission, not client selection or cancel. `tests/home-refinements.cjs` and `tests/onboarding.cjs` cover these boundaries.
+
+## Approved product requirements, pending backend
+
+- Supabase Auth and Postgres for real accounts and persistent profiles.
+- Initial launch country confirmed: Australia. The user intends Asia-Pacific Supabase hosting; the actual project region has not been verified or changed. Confirm that in the project dashboard before storing learner data.
+- Learners: three lesson starts per calendar day, including replays and final-quiz retries. The introductory first Lesson 1 start is free. Wrong answers do not spend additional lives. No carry-over. Tester and creator roles have unlimited starts and access to every lesson.
+- Lesson unlocks follow completion; passing each world's final quiz unlocks the next world. Existing in-lesson interaction gates remain.
+- Birth year is wanted for age-range metrics. Recommend no surname or surname initial: neither is needed for learning, birthday greetings or age bands. Keep birth dates private and report aggregate age bands, not identifiable birth dates. Do not add analytics SDKs before the privacy design is agreed.
+- Creator access means full learning/test functionality, not an implicit right to read every user's private profile. Any administrative reporting needs separately scoped server authorization.
+- A shared tester credential must access an isolated sandbox with no real learner data or production purchases; avoid sharing one editable progress record across testers. Creator credentials must not be bundled with the app. Use MFA for creator access and replace chat-shared passwords before release.
+
+## Required before real signups
+
+1. Public connection configuration is now verified for the user-created project. See `SUPABASE_SETUP.md`. A lazy SDK client and read-only health check are ready, but account navigation is not connected. Secrets/service-role keys belong only in protected server tooling, never Expo public configuration. No database schema or user accounts have been provisioned by this change.
+2. Australia is the confirmed initial launch country. Design the all-ages child/guardian consent flow with an Australian privacy review before real signups. Do not upload children's contact/profile information before that process is settled. A birth year alone cannot establish exact age near a birthday. Review requirements again before expanding to other countries.
+3. Configure verified email, recovery links, rate limits, password policy, session revocation and creator MFA. Use provider password hashing and HTTPS; never store password text or reversible password ciphertext in profile tables.
+4. Apply and test row-level security for each user-owned table. Learners must not be able to edit roles, balances, completion awards, purchase entitlements or unlocks directly. [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security).
+5. Implement server transactions for lesson admission, idempotent attempt IDs, completion, rewards and store-verified purchases. Server time decides the daily quota, not the device clock. Agree on a fixed account timezone and a safe timezone-change policy. Lock balance rows to prevent simultaneous starts from overspending; reconnecting an existing attempt must not debit twice.
+6. Store profile, progress/attempts, daily usage, streak activity, Quanta ledger, cosmetic ownership/equipment, Knowledge awards, achievements, dictionary unlocks, verified purchase references and onboarding state. Derive values where possible instead of trusting client totals. Keep payment-card data out of Qurio.
+7. Test using synthetic accounts in separate staging: cross-account isolation, blocked role escalation, midnight/DST, concurrent requests, offline/retry behavior, failed/passed final quizzes, reset links, expired sessions and account deletion/export. No production-security claim until deployed policies and real Auth flows pass those checks.
+
+Real login/signup, full birth-date profiles, saved accounts, daily life debits and server-enforced learner lesson locks still require this backend and consent setup. Local username entry and staged onboarding are implemented separately; no password, production role or user data is sent remotely. The session-only birthday field remains unchanged.

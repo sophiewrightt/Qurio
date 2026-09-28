@@ -1,0 +1,85 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const { PNG } = require('pngjs');
+const { createHarness } = require('./component-harness.cjs');
+const source = file => fs.readFileSync(file, 'utf8');
+const text = h => h.all(h.render()).filter(n => n.type === 'Text').flatMap(n => n.children).join('');
+const child = (h, name) => h.all(h.render()).find(n => typeof n.type === 'function' && n.type.name === name);
+
+let decryptions = 0;
+const locks = [];
+const decrypt = createHarness('components/QuantumConnectionsFinale.tsx', { onComplete() { decryptions++; }, onScrollLockChange(v) { locks.push(v); } }, 'DecryptMessage');
+const key = () => decrypt.nodes('AnimatedView').find(n => n.props.onPanResponderRelease);
+assert(decrypt.nodes('Image').some(n => n.props.accessibilityLabel?.includes('nonsense')));
+key().props.onPanResponderGrant();
+key().props.onPanResponderRelease(null, { dx: 15, dy: -20 });
+assert.equal(decryptions, 0, 'Dropping outside Barb returns the key without decrypting');
+assert.equal(locks.at(-1), false);
+key().props.onPanResponderGrant(); key().props.onPanResponderTerminate();
+assert.equal(locks.at(-1), false, 'An interrupted drag releases the parent scroll');
+const drag = key().props;
+drag.onPanResponderGrant(); drag.onPanResponderRelease(null, { dx: 180, dy: -116 });
+drag.onPanResponderRelease(null, { dx: 180, dy: -116 });
+assert.equal(decryptions, 0, 'Wait for the key to arrive');
+decrypt.flight();
+assert.equal(decryptions, 1);
+assert(!key());
+assert(decrypt.nodes('Image').some(n => n.props.accessibilityLabel?.includes('reads Hello')));
+decrypt.unmount(); assert.equal(locks.at(-1), false);
+
+const cancelled = createHarness('components/QuantumConnectionsFinale.tsx', { onComplete() { decryptions++; } }, 'DecryptMessage');
+cancelled.nodes('AnimatedView').find(n => n.props.onAccessibilityAction).props.onAccessibilityAction();
+const late = cancelled.peekFlight(); cancelled.unmount(); late({ finished: true });
+assert.equal(decryptions, 1, 'A late key callback cannot advance an unmounted lesson');
+
+let adjusted = 0;
+const adjustment = createHarness('components/TeleportationLesson.tsx', { scramble: { code: '01', label: 'Scramble 2', color: '#C8E4F6' }, onComplete() { adjusted++; } }, 'ReceiverAdjustment');
+assert(adjustment.nodes('AnimatedImage').some(n => String(n.props.source).includes('strange-b.png')));
+const apply = adjustment.nodes('Pressable')[0].props.onPress;
+apply(); apply(); assert.equal(adjusted, 0);
+adjustment.flight(); assert.equal(adjusted, 1); assert.equal(adjustment.peekFlight(), undefined);
+adjustment.unmount();
+
+const lesson7 = createHarness('screens/ModuleThreeLessonSixScreen.tsx', { onComplete() {}, onHome() {} });
+const lesson = lesson7.all(lesson7.render()).find(n => n.props.onScrollLockChange);
+lesson.props.onScrollLockChange(true);
+assert.equal(lesson7.nodes('ScrollView')[0].props.scrollEnabled, false);
+lesson.props.onScrollLockChange(false);
+assert.equal(lesson7.nodes('ScrollView')[0].props.scrollEnabled, true);
+assert.equal(lesson7.nodes('LessonQuiz').length, 0, 'The cumulative quiz belongs to Lesson 8');
+
+const app = createHarness('App.tsx');
+app.nodes('HomeScreen')[0].props.onSelectLesson(25); app.nodes('LessonEntryModal')[0].props.onPlay();
+app.nodes('ModuleThreeLessonSixScreen')[0].props.onComplete();
+app.nodes('LessonNavigationProvider')[0].props.onHome();
+assert.equal(app.nodes('HomeScreen')[0].props.unlockedWorld, undefined, 'Lesson 7 no longer unlocks Chapter 4');
+app.nodes('HomeScreen')[0].props.onSelectLesson(31); app.nodes('LessonEntryModal')[0].props.onPlay();
+const finish = app.nodes('ModuleThreeLessonEightScreen')[0].props.onComplete;
+finish(7); finish(7);
+app.nodes('LessonNavigationProvider')[0].props.onHome();
+assert.deepEqual(app.nodes('HomeScreen')[0].props.completed, [25, 31]);
+assert.equal(app.nodes('HomeScreen')[0].props.xp, 0);
+assert.equal(app.nodes('HomeScreen')[0].props.unlockedWorld, 4);
+assert(source('App.tsx').includes('screen === 31 ? 3'), 'Final quiz preloads Chapter 3, not Chapter 4');
+
+const qkd = source('components/QuantumConnectionsFinale.tsx');
+for (const removed of ['That works, but the packet is readable', '>HELLO!</Text>', '>!B77#</Text>', 'Unlike a pair of socks', '<DiscardedKey', 'Real systems can have errors', 'They also need authenticated']) assert(!qkd.includes(removed));
+assert(qkd.includes('destination="hacker" kind="encrypted"'));
+assert(qkd.includes('ordinary authenticated channel') && qkd.includes('Noise can cause errors too'));
+const teleport = source('components/TeleportationLesson.tsx');
+assert(!teleport.includes('one-use quantum handoff'));
+assert(teleport.includes('Could this teleportation be done faster than light?'));
+assert(teleport.indexOf('Try to finish at Barb') > teleport.indexOf('One random scramble'), 'Early attempt is below the random result, not back in the board');
+assert(source('components/StrangeSpinLesson.tsx').includes("duration: 2400, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web'"));
+assert(source('components/WorldCelebration.tsx').includes("useNativeDriver: Platform.OS !== 'web'"));
+assert(!source('components/TelepathyLesson.tsx').includes('It travelled the whole way.'));
+const png = name => PNG.sync.read(fs.readFileSync(`assets/module-3/refinements/${name}.png`));
+const closed = png('room-closed'), open = png('room-open');
+assert.deepEqual([closed.width, closed.height], [open.width, open.height]);
+const keyArt = png('secret-key');
+let left = keyArt.width, right = 0, top = keyArt.height, bottom = 0;
+for (let y = 0; y < keyArt.height; y++) for (let x = 0; x < keyArt.width; x++) if (keyArt.data[(y * keyArt.width + x) * 4 + 3] > 100) { left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y); }
+assert(right - left > keyArt.width * .75 && bottom - top > keyArt.height * .75, 'Key fills its canvas');
+assert(Math.abs((left + right) / 2 - keyArt.width / 2) < 15, 'Key is optically centred');
+assert(png('strange-celebrating').data.some((v, i) => i % 4 === 3 && v === 0));
+console.log('PASS: Chapter 3 final touches, drag-to-decrypt, local Strange adjustment, eight-lesson routing, rewards and artwork');

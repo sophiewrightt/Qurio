@@ -1,0 +1,141 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const ts = require('typescript');
+const { createHarness } = require('./component-harness.cjs');
+const data = {};
+new Function('exports', ts.transpileModule(fs.readFileSync('data/onboarding.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText)(data);
+let state = data.initialTour;
+const advance = event => { state = data.advanceTour(state, state.step, event, false); };
+for (let i = 0; i < 6; i++) advance('continue');
+assert.equal(state.step, 'friendPause'); advance('continue'); assert.equal(state.step, 'friendPause'); advance('pause-ended'); advance('continue');
+assert.equal(state.step, 'firstLesson');
+advance('continue'); assert.equal(state.step, 'firstLesson', 'An action step cannot be bypassed by Continue');
+advance('start-first'); assert.equal(state.trialUsed, true);
+for (let i = 0; i < 3; i++) advance('continue');
+assert.equal(state.step, 'exploring');
+advance('quiz-visible'); advance('continue'); advance('continue'); advance('finish-first');
+assert.equal(state.step, 'knowledge'); advance('continue'); advance('continue'); advance('name-focused');
+assert.equal(state.step, 'naming'); advance('name-saved'); assert.equal(state.step, 'exploreMessage'); advance('continue');
+assert.equal(state.step, 'waiting-four'); advance('finish-four');
+assert.equal(state.step, 'dictionary'); advance('dictionary-open'); advance('continue');
+assert.equal(data.tourStep(state), undefined, 'Dictionary is freely browsable'); advance('dictionary-close');
+assert.equal(state.step, 'achievements');
+advance('continue'); assert.equal(state.step, 'achievements', 'Must tap the actual Achievements entry');
+assert(data.featureAvailable(state, 'achievements'));
+advance('achievements-open');
+assert.equal(state.step, 'claim'); assert.equal(data.tourStep(state).clear, true); advance('achievement-claimed'); advance('pause-ended'); advance('achievements-home'); advance('wardrobe-open'); advance('continue'); advance('market-open'); advance('pause-ended');
+advance('continue'); assert.equal(state.step, 'gift');
+const beforeGift = state; advance('continue'); assert.equal(state.gift, 100);
+assert.equal(data.advanceTour(state, beforeGift.step, 'continue', false), state, 'A repeated gift callback cannot credit twice');
+advance('packet-bought'); assert.equal(state.step, 'packetPause'); advance('pause-ended'); advance('packet-ripped'); advance('packet-done'); advance('continue'); advance('shop-back'); advance('continue'); advance('continue');
+assert.equal(state.step, 'done'); assert.equal(state.gift, 100);
+for (const feature of ['dictionary', 'achievements', 'wardrobe']) {
+  assert(!data.featureAvailable({ ...data.initialTour, step: 'waiting-four' }, feature));
+  assert(data.featureAvailable(state, feature));
+}
+const tester = data.advanceTour({ ...data.initialTour, step: 'streak' }, 'streak', 'continue', true);
+for (const id of ['friendPause', 'claimPause', 'shopPause', 'packetPause']) {
+  const step = data.tourSteps[id];
+  const calls = [];
+  const props = { host: step.host, tourContext: { state: { ...data.initialTour, step: id }, enabled: true, screen: step.screen, event: (...args) => calls.push(args) } };
+  const overlay = createHarness('components/Onboarding.tsx', props, 'TourOverlay');
+  overlay.render(); assert.deepEqual(overlay.pendingTimeouts(), [1000]);
+  assert.equal(overlay.nodes('AnimatedView').length, 0, 'Pause has no bubble');
+  overlay.timeout(); assert.deepEqual(calls, [['pause-ended', id]]);
+  props.tourContext.enabled = false; overlay.render(); assert.deepEqual(overlay.pendingTimeouts(), []);
+  props.tourContext.enabled = true; overlay.render(); overlay.unmount(); assert.deepEqual(overlay.pendingTimeouts(), [], 'Unmount cancels the pause');
+}
+assert.equal(tester.step, 'quanta', 'Testers skip the energy explanation');
+assert.equal(data.tourStep({ ...data.initialTour, step: 'revealed' }), undefined, 'Results remain freely scrollable');
+assert.match(data.tourStep({ ...data.initialTour, step: 'knowledge', noKnowledge: true }).text, /knowledge/i);
+assert(!data.tourStep({ ...data.initialTour, step: 'dictionary', noWord: true }).text.includes('and a new word'));
+
+const homeEvents = [];
+const homeProps = { xp: 0, completed: [], collected: true, particleName: '', tourState: { ...data.initialTour, step: 'naming' }, onTourEvent: e => homeEvents.push(e), onAchievements: () => homeEvents.push('open-achievements') };
+const homeView = createHarness('screens/HomeScreen.tsx', homeProps);
+for (const label of ['Customise your particle!', 'Open your dictionary', 'Open achievements, 0 earned']) {
+  assert.equal(homeView.nodes('Pressable').find(n => n.props.accessibilityLabel === label).props.disabled, true);
+}
+const nameInput = () => homeView.nodes('TextInput').find(n => n.props.accessibilityLabel === 'Name your particle');
+nameInput().props.onBlur(); assert.deepEqual(homeEvents, [], 'Empty names do not finish naming');
+homeProps.particleName = 'Orbit'; nameInput().props.onSubmitEditing(); assert.deepEqual(homeEvents, ['name-saved']);
+homeProps.tourState = { ...data.initialTour, step: 'dictionary' };
+homeView.nodes('Pressable').find(n => n.props.accessibilityLabel === 'Open your dictionary').props.onPress();
+homeProps.tourState = { ...data.initialTour, step: 'dictionaryBrowse' };
+homeView.nodes('DictionaryModal')[0].props.onClose(); assert(homeEvents.includes('dictionary-close')); assert(!homeEvents.includes('open-achievements'));
+assert.equal(homeView.nodes('DictionaryModal').length, 0);
+
+const offerProps = { quanta: 200, owned: [], tourState: { ...data.initialTour, step: 'gift' }, onBuy: () => { throw Error('Early tutorial purchase'); } };
+const offerView = createHarness('screens/ShopScreen.tsx', offerProps);
+const buyButton = () => offerView.nodes('Pressable').find(n => n.props.accessibilityLabel === 'Buy Q accessory packet for 100 Quanta');
+assert.equal(buyButton().props.disabled, true); buyButton().props.onPress();
+offerProps.tourState.step = 'buy'; assert.equal(buyButton().props.disabled, false);
+assert.equal(data.tourSteps.buy.keepScroll, true); assert.equal(data.tourSteps.buy.host, 'shop');
+const pausedPack = createHarness('components/RewardPack.tsx', { openingDisabled: true, rewardIds: ['fedora'], onOpen: () => { throw Error('Ripped during pause'); } });
+pausedPack.nodes('PrimaryButton')[0].props.onPress(); assert.equal(pausedPack.nodes('PrimaryButton')[0].props.disabled, true);
+
+const login = createHarness('screens/PrototypeLoginScreen.tsx', { onEnter(value) { assert.deepEqual(value, { username: 'Tester', mode: 'tester' }); } });
+login.nodes('Pressable').find(n => n.children.some(c => c?.children?.includes('Tester'))).props.onPress();
+login.nodes('Pressable').find(n => n.props.accessibilityLabel === 'Enter Qurio').props.onPress();
+const wrapper = createHarness('App.tsx', {}, 'PrototypeApp');
+assert.equal(wrapper.nodes('PrototypeLoginScreen').length, 1, 'Live app starts at local entry, not unlocked Home');
+
+const app = createHarness('App.tsx', { profile: { username: 'Guest QA', mode: 'guest' } });
+const tour = () => app.nodes('OnboardingProvider')[0].props;
+const event = action => tour().event(action, tour().state.step);
+const home = () => app.nodes('HomeScreen')[0].props;
+assert.equal(home().username, 'Guest QA'); assert.equal(home().energy, 3);
+home().onAchievements(); home().onCustomise(); assert.equal(app.nodes('HomeScreen').length, 1, 'Early feature navigation is blocked');
+for (let i = 0; i < 6; i++) event('continue'); event('pause-ended'); event('continue');
+const startTrial = home().onSelectLesson;
+startTrial(1); startTrial(1);
+assert.equal(app.nodes('LessonEntryModal').length, 0, 'Trial enters directly');
+assert.equal(app.nodes('LessonScreen').length, 1);
+for (let i = 0; i < 3; i++) event('continue');
+event('quiz-visible'); event('continue'); event('continue');
+app.nodes('KnowledgeProvider')[0].props.onCorrect('q1');
+app.nodes('LessonScreen')[0].props.onComplete();
+assert.equal(app.nodes('LessonNavigationProvider')[0].props.onNext, undefined);
+app.nodes('LessonNavigationProvider')[0].props.onHome();
+assert.equal(tour().state.step, 'knowledge'); event('continue'); event('continue'); event('name-focused');
+event('name-saved'); event('continue');
+home().onSelectLesson(1); assert.equal(app.nodes('LessonEntryModal').length, 1, 'A replay does not get another trial');
+app.nodes('LessonEntryModal')[0].props.onLater();
+for (const [id, component, callback] of [[2, 'LessonTwoScreen', 'onComplete'], [3, 'DoubleSlitScreen', 'onContinue']]) {
+  home().onSelectLesson(id); app.nodes('LessonEntryModal')[0].props.onPlay();
+  app.nodes(component)[0].props[callback](); app.nodes('LessonNavigationProvider')[0].props.onHome();
+}
+home().onSelectLesson(4); app.nodes('LessonEntryModal')[0].props.onPlay();
+app.nodes('LessonFourScreen')[0].props.onComplete();
+assert.equal(app.nodes('LessonNavigationProvider')[0].props.onNext, undefined);
+app.nodes('LessonNavigationProvider')[0].props.onHome();
+assert.equal(tour().state.step, 'dictionary');
+event('dictionary-open'); event('continue');
+home().onAchievements(); assert.equal(app.nodes('AchievementsScreen').length, 0, 'Cannot skip dictionary browsing');
+event('dictionary-close');
+assert.equal(app.nodes('HomeScreen').length, 1, 'Dictionary exit stays Home');
+assert.equal(tour().state.step, 'achievements');
+home().onAchievements(); assert.equal(tour().state.step, 'claim');
+const claim = app.nodes('AchievementsScreen')[0].props.onClaim;
+assert.equal(claim('W1.1'), true); assert.equal(claim('W1.1'), false);
+assert.equal(tour().state.step, 'claimPause'); event('pause-ended');
+app.nodes('AchievementsScreen')[0].props.onBack(); home().onCustomise();
+assert.equal(app.nodes('CustomisationScreen')[0].props.creatorPreviewAvailable, false);
+event('continue'); app.nodes('CustomisationScreen')[0].props.onShop(); event('pause-ended'); event('continue');
+const gift = tour().event, giftStep = tour().state.step;
+gift('continue', giftStep); gift('continue', giftStep);
+const shop = () => app.nodes('ShopScreen')[0].props;
+assert.equal(shop().quanta, 240, '120 starter + 20 achievement + one 100 gift');
+const buy = shop().onBuy; assert.equal(buy('standard'), true); assert.equal(buy('standard'), false);
+assert.equal(shop().quanta, 140); assert.equal(tour().state.step, 'packetPause'); event('pause-ended');
+const id = shop().packet.id; shop().onRip(id); shop().onRip(id);
+assert.equal(tour().state.step, 'revealed'); shop().onFinishPacket(id);
+assert.equal(tour().state.step, 'otherMarket'); event('continue'); shop().onBack(); event('continue'); event('continue');
+assert.equal(tour().state.step, 'done');
+
+const unlimited = createHarness('App.tsx', { profile: { username: 'QA', mode: 'tester' } });
+assert.equal(unlimited.nodes('HomeScreen')[0].props.infiniteEnergy, true);
+unlimited.nodes('HomeScreen')[0].props.onSelectLesson(2);
+assert.equal(unlimited.nodes('LessonEntryModal').length, 0);
+assert.equal(unlimited.nodes('LessonTwoScreen').length, 1);
+console.log('PASS: staged action-driven onboarding, local username entry, tester energy, one free trial, Home-only endings, earned claim, one-time gift, real purchase/rip and stale-event guards');
